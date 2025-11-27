@@ -41,7 +41,7 @@ const firebaseConfig = {
 };
 
 // API KEY GEMINI CỦA BẠN
-const GEMINI_API_KEY = "AIzaSyAkdi_vvpFHRptsZGwMxBx4jdC_6qYqoCs";
+const GEMINI_API_KEY = "";
 
 // DANH SÁCH MODEL DỰ PHÒNG (Ưu tiên Flash vì nhanh và rẻ)
 const GEMINI_MODELS = [
