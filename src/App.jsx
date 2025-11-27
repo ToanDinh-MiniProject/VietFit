@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-// 1. IMPORT CÁC THƯ VIỆN (Luôn để ở đầu file)
+// 1. IMPORT CÁC THƯ VIỆN
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { 
@@ -12,8 +12,12 @@ import {
 import { 
   Activity, Utensils, Trash2, Flame, Target, Scale, 
   RotateCcw, PlusCircle, Info, ChevronRight, TrendingDown, 
-  Home, User, Plus, ArrowLeft, Download 
+  Home, User, Plus, ArrowLeft, Download,
+  Camera, Loader2 // <--- Đã thêm icon Camera và Loader
 } from 'lucide-react';
+
+// --- IMPORT GEMINI ---
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // 2. CẤU HÌNH FIREBASE
 const firebaseConfig = {
@@ -29,8 +33,15 @@ const firebaseConfig = {
 // Khởi tạo Firebase
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
-const auth = getAuth(app); // Khởi tạo Authentication
-const googleProvider = new GoogleAuthProvider(); // Khởi tạo Google Provider
+
+// API KEY GEMINI CỦA BẠN
+const GEMINI_API_KEY = "AIzaSyAkdi_vvpFHRptsZGwMxBx4jdC_6qYqoCs";
+
+const auth = getAuth(app); 
+const googleProvider = new GoogleAuthProvider(); 
+
+// Khởi tạo Gemini AI
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // 3. DỮ LIỆU MẪU
 const COMMON_FOODS = [
@@ -82,7 +93,7 @@ export default function App() {
     activityLevel: '1.375', 
   });
 
-  const [step, setStep] = useState(1); // 1: Setup, 2: Dashboard
+  const [step, setStep] = useState(1); 
   const [activeTab, setActiveTab] = useState('home'); 
   const [tdee, setTdee] = useState(0);
   const [targetCalories, setTargetCalories] = useState(0);
@@ -90,6 +101,9 @@ export default function App() {
   const [meals, setMeals] = useState([]);
   const [newMealName, setNewMealName] = useState('');
   const [newMealCalories, setNewMealCalories] = useState('');
+
+  // --- STATE CHO AI SCANNER ---
+  const [isScanning, setIsScanning] = useState(false);
 
   // --- EFFECT: KIỂM TRA ĐĂNG NHẬP ---
   useEffect(() => {
@@ -103,6 +117,56 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // --- HÀM XỬ LÝ ẢNH CHO GEMINI ---
+  async function fileToGenerativePart(file) {
+    const base64EncodedDataPromise = new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.readAsDataURL(file);
+    });
+    return {
+      inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+    };
+  }
+
+  // --- HÀM GỌI GEMINI AI ---
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      // 1. Chuẩn bị ảnh
+      const imagePart = await fileToGenerativePart(file);
+      
+      // 2. Chọn Model (Flash chạy nhanh và rẻ)
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      
+      // 3. Câu lệnh (Prompt) yêu cầu trả về JSON
+      const prompt = "Hãy nhìn món ăn trong ảnh này. Trả về đúng định dạng JSON duy nhất như sau: { \"name\": \"Tên món tiếng Việt ngắn gọn\", \"calories\": số_calo_ước_tính_nguyên_dương }. Không thêm bất kỳ ký tự nào khác ngoài JSON.";
+      
+      // 4. Gửi lên Google
+      const result = await model.generateContent([prompt, imagePart]);
+      const response = await result.response;
+      const text = response.text();
+      
+      // 5. Xử lý kết quả (Lọc bỏ markdown ```json nếu có)
+      const cleanText = text.replace(/```json|```/g, '').trim();
+      const data = JSON.parse(cleanText);
+
+      // 6. Điền dữ liệu vào form
+      setNewMealName(data.name);
+      setNewMealCalories(data.calories);
+      alert(`AI đã nhận diện: ${data.name} (~${data.calories} kcal)`);
+
+    } catch (error) {
+      console.error("Gemini Error:", error);
+      alert("Không nhận diện được món ăn. Vui lòng thử ảnh khác rõ hơn.");
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
   // --- HÀM XỬ LÝ AUTH ---
   const handleGoogleLogin = async () => {
@@ -251,8 +315,23 @@ export default function App() {
 
   const AddTab = () => (
     <div className="space-y-6 animate-fade-in pb-24 h-full flex flex-col">
+      {/* --- PHẦN AI SCANNER THÊM VÀO --- */}
+      <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-3xl shadow-lg text-white">
+         <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+           <Camera className="text-white" /> Gemini AI Scanner
+         </h2>
+         <p className="text-indigo-100 text-sm mb-4">Chụp ảnh món ăn để AI tự động tính calo.</p>
+         
+         <label className={`w-full bg-white/20 backdrop-blur-sm border border-white/30 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-white/30 transition-all ${isScanning ? 'opacity-50 pointer-events-none' : ''}`}>
+            {isScanning ? <Loader2 className="animate-spin" /> : <Camera size={20} />}
+            <span>{isScanning ? 'Đang phân tích...' : 'Bấm để chụp ảnh'}</span>
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
+         </label>
+      </div>
+      {/* --- KẾT THÚC PHẦN AI --- */}
+
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-800 mb-4">Thêm món ăn</h2>
+        <h2 className="text-xl font-bold text-gray-800 mb-4">Nhập thủ công</h2>
         <form onSubmit={addMeal} className="space-y-4">
           <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tên món</label><input type="text" value={newMealName} onChange={(e) => setNewMealName(e.target.value)} placeholder="Ví dụ: Bún bò" className="w-full p-4 bg-gray-50 rounded-xl border-transparent focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all font-medium" /></div>
           <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Calo (kcal)</label><input type="number" value={newMealCalories} onChange={(e) => setNewMealCalories(e.target.value)} placeholder="0" className="w-full p-4 bg-gray-50 rounded-xl border-transparent focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all font-medium" /></div>
