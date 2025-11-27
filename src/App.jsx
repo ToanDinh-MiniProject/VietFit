@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 // 1. IMPORT CÁC THƯ VIỆN
 import { initializeApp } from "firebase/app";
-// import { getAnalytics } from "firebase/analytics"; 
+// import { getAnalytics } from "firebase/analytics"; // Tạm tắt Analytics để tránh lỗi nếu chưa cấu hình
 import { 
   getAuth, 
   signInWithPopup, 
@@ -29,7 +29,7 @@ import {
   Camera, Loader2, Sun, Moon, Coffee, X
 } from 'lucide-react';
 
-// 2. CẤU HÌNH FIREBASE
+// 2. CẤU HÌNH FIREBASE & API
 const firebaseConfig = {
   apiKey: "AIzaSyD-2QpFWAYbZM_MK46ccOVdd-yFZiPf-cE",
   authDomain: "vietfit.firebaseapp.com",
@@ -40,23 +40,21 @@ const firebaseConfig = {
   measurementId: "G-DPCBN0B3KN"
 };
 
-// --- CẤU HÌNH BẢO MẬT API KEY (QUAN TRỌNG) ---
-// Lấy key từ biến môi trường (File .env)
-// Nếu dùng Create React App: process.env.REACT_APP_GEMINI_API_KEY
-// Nếu dùng Vite: import.meta.env.VITE_GEMINI_API_KEY
+// API KEY GEMINI CỦA BẠN
+const GEMINI_API_KEY = "AIzaSyAkdi_vvpFHRptsZGwMxBx4jdC_6qYqoCs";
 
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-
-// DANH SÁCH MODEL DỰ PHÒNG
+// DANH SÁCH MODEL DỰ PHÒNG (Ưu tiên Flash vì nhanh và rẻ)
 const GEMINI_MODELS = [
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
   "gemini-1.5-pro",
-  "gemini-pro-vision" 
+  "gemini-pro-vision",
+  "gemini-flash-latest" 
 ];
 
 // Khởi tạo Firebase
 const app = initializeApp(firebaseConfig);
+// const analytics = getAnalytics(app); 
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
@@ -211,11 +209,6 @@ export default function App() {
 
   // --- HÀM GỌI API THÔNG MINH (Fallback) ---
   const callGeminiWithFallback = async (base64Data, modelIndex = 0) => {
-    if (!GEMINI_API_KEY) {
-      alert("Chưa cấu hình API Key trong file .env!\nHãy tạo file .env và thêm dòng: REACT_APP_GEMINI_API_KEY=Key_Cua_Ban");
-      throw new Error("Missing API Key");
-    }
-
     if (modelIndex >= GEMINI_MODELS.length) {
       throw new Error("Hệ thống AI đang bận. Vui lòng thử lại sau!");
     }
@@ -296,7 +289,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Gemini Error:", error);
-      // alert(`⚠️ Không thể nhận diện ảnh: ${error.message}`);
+      alert(`⚠️ Không thể nhận diện ảnh: ${error.message}`);
     } finally {
       setIsScanning(false);
       // Reset input file để chọn lại cùng 1 ảnh được
