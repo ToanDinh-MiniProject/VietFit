@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 // 1. IMPORT CÁC THƯ VIỆN
 import { initializeApp } from "firebase/app";
-// import { getAnalytics } from "firebase/analytics"; // Tạm tắt Analytics để tránh lỗi nếu chưa cấu hình
 import { 
   getAuth, 
   signInWithPopup, 
@@ -26,7 +25,7 @@ import {
   Utensils, Trash2, Flame, Scale, 
   RotateCcw, Info, ChevronRight, ChevronLeft, Calendar,
   Home, User, Plus, Download, Settings,
-  Camera, Loader2, Sun, Moon, Coffee, X
+  Camera, Loader2, Sun, Moon, Coffee, X, Sparkles // <--- Đã thêm Sparkles
 } from 'lucide-react';
 
 // 2. CẤU HÌNH FIREBASE & API
@@ -41,9 +40,10 @@ const firebaseConfig = {
 };
 
 // API KEY GEMINI CỦA BẠN
-const GEMINI_API_KEY = "";
+// Thay thế chuỗi cứng bằng biến môi trường
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// DANH SÁCH MODEL DỰ PHÒNG (Ưu tiên Flash vì nhanh và rẻ)
+// DANH SÁCH MODEL DỰ PHÒNG
 const GEMINI_MODELS = [
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
@@ -54,7 +54,6 @@ const GEMINI_MODELS = [
 
 // Khởi tạo Firebase
 const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app); 
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
@@ -122,12 +121,12 @@ export default function App() {
   
   // Scan State
   const [isScanning, setIsScanning] = useState(false);
+  const [isTextSearching, setIsTextSearching] = useState(false); // <--- State mới cho Text Search
   const [scanResult, setScanResult] = useState(null);
   const fileInputRef = useRef(null);
 
   // --- AUTH & LOAD DATA ---
   useEffect(() => {
-    // Timeout an toàn để tắt loading nếu mạng lag
     const timer = setTimeout(() => setLoading(false), 8000);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -135,7 +134,6 @@ export default function App() {
       if (user) {
         setCurrentUser(user);
         try {
-          // Lấy profile user
           const userDocRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userDocRef);
           
@@ -146,13 +144,12 @@ export default function App() {
             setTargetCalories(data.targetCalories || 0);
             setStep(2); 
           } else {
-            setStep(1); // Chưa có profile -> qua màn hình setup
+            setStep(1); 
           }
         } catch (error) { 
           console.error("Lỗi tải profile:", error); 
         }
 
-        // Realtime listener cho Meals
         const q = query(collection(db, "users", user.uid, "meals"), orderBy("createdAt", "desc"));
         onSnapshot(q, (snapshot) => {
           const loadedMeals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -181,7 +178,7 @@ export default function App() {
     return `${d}/${m}/${y}`;
   };
 
-  // --- HÀM NÉN ẢNH (Quan trọng để upload nhanh) ---
+  // --- HÀM NÉN ẢNH ---
   const compressImage = (file) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -191,12 +188,11 @@ export default function App() {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const scale = 800 / img.width; // Resize về chiều ngang 800px
+          const scale = 800 / img.width; 
           canvas.width = 800;
           canvas.height = img.height * scale;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // Nén chất lượng 0.7 JPEG
           const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
           resolve({
             base64: dataUrl.split(',')[1],
@@ -207,14 +203,10 @@ export default function App() {
     });
   };
 
-  // --- HÀM GỌI API THÔNG MINH (Fallback) ---
+  // --- HÀM GỌI API HÌNH ẢNH (VISION) ---
   const callGeminiWithFallback = async (base64Data, modelIndex = 0) => {
-    if (modelIndex >= GEMINI_MODELS.length) {
-      throw new Error("Hệ thống AI đang bận. Vui lòng thử lại sau!");
-    }
-
+    if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống AI đang bận.");
     const currentModel = GEMINI_MODELS[modelIndex];
-    console.log(`📡 Đang thử kết nối với model: ${currentModel}...`);
 
     try {
       const response = await fetch(
@@ -225,31 +217,52 @@ export default function App() {
           body: JSON.stringify({
             contents: [{
               parts: [
-                { text: "Bạn là chuyên gia dinh dưỡng. Nhìn ảnh này. Trả về kết quả CHỈ LÀ MỘT JSON duy nhất: { \"name\": \"Tên món tiếng Việt ngắn gọn\", \"calories\": số_calo_nguyên_dương, \"description\": \"mô tả ngắn 1 câu\" }. Ví dụ: { \"name\": \"Phở bò\", \"calories\": 450, \"description\": \"Nước dùng trong, nhiều thịt.\" }. Không thêm dấu ```json hay bất kỳ lời dẫn nào." },
+                { text: "Bạn là chuyên gia dinh dưỡng. Nhìn ảnh này. Trả về kết quả CHỈ LÀ MỘT JSON duy nhất: { \"name\": \"Tên món tiếng Việt ngắn gọn\", \"calories\": số_calo_nguyên_dương, \"description\": \"mô tả ngắn 1 câu\" }. Không thêm dấu ```json." },
                 { inline_data: { mime_type: "image/jpeg", data: base64Data } }
               ]
             }]
           })
         }
       );
-
-      if (!response.ok) {
-        if (response.status === 404 || response.status === 503) {
-          console.warn(`⚠️ Model ${currentModel} không phản hồi, thử model khác...`);
-          return await callGeminiWithFallback(base64Data, modelIndex + 1);
-        }
-        throw new Error(`Lỗi API (${response.status})`);
-      }
-
-      const data = await response.json();
-      return data;
-
+      if (!response.ok) return await callGeminiWithFallback(base64Data, modelIndex + 1);
+      return await response.json();
     } catch (error) {
-      console.warn(`❌ Lỗi khi gọi ${currentModel}:`, error);
       return await callGeminiWithFallback(base64Data, modelIndex + 1);
     }
   };
 
+  // --- HÀM GỌI API BẰNG TEXT (MỚI) ---
+  const callGeminiTextOnly = async (foodName, modelIndex = 0) => {
+    if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống bận.");
+    const currentModel = GEMINI_MODELS[modelIndex];
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ 
+                text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng calo cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
+                Trả về JSON duy nhất: { "name": "Tên món chuẩn hóa", "calories": số_calo_nguyên, "description": "Mô tả ngắn gọn khẩu phần" }. 
+                Không giải thích thêm. Không dùng markdown block.` 
+              }]
+            }]
+          })
+        }
+      );
+
+      if (!response.ok) return await callGeminiTextOnly(foodName, modelIndex + 1);
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return await callGeminiTextOnly(foodName, modelIndex + 1);
+    }
+  };
+
+  // --- XỬ LÝ ẢNH ---
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -258,17 +271,11 @@ export default function App() {
     setScanResult(null);
 
     try {
-      // 1. Nén ảnh
       const { base64, preview } = await compressImage(file);
-      
-      // 2. Gọi AI
       const data = await callGeminiWithFallback(base64);
       
-      // 3. Xử lý kết quả trả về
       if (data && data.candidates && data.candidates[0].content) {
         const text = data.candidates[0].content.parts[0].text;
-        
-        // Làm sạch chuỗi JSON (AI hay thêm ```json ... ```)
         const cleanText = text.replace(/```json|```/g, '').trim();
         const firstBrace = cleanText.indexOf('{');
         const lastBrace = cleanText.lastIndexOf('}');
@@ -277,10 +284,7 @@ export default function App() {
             const finalJson = cleanText.substring(firstBrace, lastBrace + 1);
             const resultData = JSON.parse(finalJson);
             
-            setScanResult({
-                ...resultData,
-                image: preview
-            });
+            setScanResult({ ...resultData, image: preview });
             setNewMealName(resultData.name);
             setNewMealCalories(resultData.calories);
         } else {
@@ -288,11 +292,9 @@ export default function App() {
         }
       }
     } catch (error) {
-      console.error("Gemini Error:", error);
       alert(`⚠️ Không thể nhận diện ảnh: ${error.message}`);
     } finally {
       setIsScanning(false);
-      // Reset input file để chọn lại cùng 1 ảnh được
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -303,13 +305,40 @@ export default function App() {
     setNewMealCalories('');
   };
 
+  // --- XỬ LÝ TEXT SEARCH (MỚI) ---
+  const handleTextAnalysis = async () => {
+    if (!newMealName.trim()) return alert("Vui lòng nhập tên món ăn trước!");
+    
+    setIsTextSearching(true);
+    try {
+      const data = await callGeminiTextOnly(newMealName);
+      
+      if (data && data.candidates && data.candidates[0].content) {
+        const text = data.candidates[0].content.parts[0].text;
+        const cleanText = text.replace(/```json|```/g, '').trim();
+        const jsonStart = cleanText.indexOf('{');
+        const jsonEnd = cleanText.lastIndexOf('}');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+           const result = JSON.parse(cleanText.substring(jsonStart, jsonEnd + 1));
+           setNewMealName(result.name);
+           setNewMealCalories(result.calories);
+        }
+      }
+    } catch (error) {
+      alert("Không tìm thấy thông tin món này. Bạn hãy tự nhập nhé!");
+    } finally {
+      setIsTextSearching(false);
+    }
+  };
+
   // --- CÁC HÀM FIREBASE DATA ---
   const saveUserProfile = async () => {
     let bmr = userInfo.gender === 'male' 
       ? (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) + 5
       : (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) - 161;
     const tdeeVal = Math.round(bmr * parseFloat(userInfo.activityLevel));
-    const targetVal = tdeeVal - 500; // Deficit for weight loss
+    const targetVal = tdeeVal - 500; 
     
     setTdee(tdeeVal); setTargetCalories(targetVal);
     
@@ -332,7 +361,6 @@ export default function App() {
         date: currentDate, 
         createdAt: new Date().toISOString()
       });
-      // Reset form
       setNewMealName(''); setNewMealCalories(''); setScanResult(null);
       setActiveTab('home');
     } catch (error) { alert("Lỗi lưu dữ liệu: " + error.message); }
@@ -378,7 +406,6 @@ export default function App() {
   // --- UI RENDER: TAB HOME ---
   const renderHomeTab = () => (
     <div className="space-y-6 animate-fade-in pb-24">
-      {/* Date Navigator */}
       <div className="flex items-center justify-between bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={20} className="text-gray-500"/></button>
         <div className="flex items-center gap-2 font-bold text-gray-700">
@@ -387,7 +414,6 @@ export default function App() {
         <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-500"/></button>
       </div>
 
-      {/* Main Stats Card */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
         <div className="relative z-10 text-center">
@@ -404,7 +430,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Meals List */}
       <div>
         {MEAL_TYPES.map((type) => {
           const typeMeals = mealsByDate.filter(m => m.type === type.id);
@@ -446,7 +471,6 @@ export default function App() {
            Thêm vào: <span className="text-emerald-600">{getDisplayDate()}</span>
         </h2>
         
-        {/* Meal Type Selector */}
         <div className="grid grid-cols-3 gap-2 mb-6">
           {MEAL_TYPES.map(t => (
             <button 
@@ -505,11 +529,42 @@ export default function App() {
         <form onSubmit={addMeal} className="space-y-4">
           <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Tên món</label>
-              <input type="text" value={newMealName} onChange={(e) => setNewMealName(e.target.value)} placeholder="Ví dụ: Bún bò" className="w-full p-4 bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all font-medium text-gray-800 outline-none" />
+              <div className="relative">
+                <input 
+                    type="text" 
+                    value={newMealName} 
+                    onChange={(e) => setNewMealName(e.target.value)} 
+                    placeholder="Nhập tên món (VD: Bún bò)..." 
+                    className="w-full p-4 pr-12 bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all font-medium text-gray-800 outline-none" 
+                />
+                <button 
+                  type="button"
+                  onClick={handleTextAnalysis}
+                  disabled={isTextSearching || !newMealName}
+                  className="absolute right-2 top-2 bottom-2 bg-white text-emerald-600 p-2 rounded-lg border border-gray-100 shadow-sm hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all group"
+                  title="AI Tự động tính Calo"
+                >
+                  {isTextSearching ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={20} className="group-hover:scale-110 transition-transform"/>
+                  )}
+                </button>
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1 ml-1 flex items-center gap-1">
+                <Sparkles size={10} /> Nhập tên & bấm nút sao để AI điền Calo
+              </div>
           </div>
+
           <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Calo (kcal)</label>
-              <input type="number" value={newMealCalories} onChange={(e) => setNewMealCalories(e.target.value)} placeholder="0" className="w-full p-4 bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all font-medium text-gray-800 outline-none" />
+              <input 
+                type="number" 
+                value={newMealCalories} 
+                onChange={(e) => setNewMealCalories(e.target.value)} 
+                placeholder="0" 
+                className={`w-full p-4 bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all font-medium text-gray-800 outline-none ${isTextSearching ? 'animate-pulse bg-emerald-50' : ''}`} 
+               />
           </div>
           <button type="submit" className={`w-full text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform ${scanResult ? 'bg-emerald-600 shadow-emerald-200' : 'bg-gray-800 shadow-gray-300'}`}>
             {scanResult ? '✅ Lưu kết quả AI' : 'Lưu Món Ăn'}
@@ -560,8 +615,6 @@ export default function App() {
   );
 
   // --- MAIN RENDER ---
-  
-  // 1. Màn hình Loading
   if (loading) {
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-white font-sans">
@@ -571,10 +624,8 @@ export default function App() {
     );
   }
 
-  // 2. Màn hình Login
   if (!currentUser) return <LoginScreen onLogin={handleGoogleLogin} />;
   
-  // 3. Màn hình Setup (Lần đầu)
   if (step === 1) return (
      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
         <div className="bg-white w-full max-w-md p-8 rounded-[2rem] shadow-xl">
@@ -622,7 +673,6 @@ export default function App() {
      </div>
   );
 
-  // 4. Màn hình Chính (App Shell)
   return (
     <div className="min-h-screen bg-gray-200 flex items-center justify-center p-0 md:p-4 font-sans">
       <div className="bg-gray-50 w-full max-w-md md:rounded-[2.5rem] md:border-[8px] md:border-white shadow-2xl overflow-hidden h-screen md:h-[850px] flex flex-col relative">
@@ -631,7 +681,7 @@ export default function App() {
         <div className="bg-white p-4 pt-8 md:pt-6 shadow-sm flex justify-between sticky top-0 z-20 items-center">
           <div className="font-extrabold text-lg flex gap-2 items-center text-gray-800">
               <div className="bg-orange-500 p-1.5 rounded-lg text-white"><Flame size={18} fill="currentColor"/></div>
-              VietFit Pro
+              Xin Chào {currentUser?.displayName}
           </div>
           <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
               {currentUser.photoURL ? <img src={currentUser.photoURL} alt="User" className="w-full h-full object-cover"/> : <span className="text-xs font-bold text-emerald-600">VF</span>}
