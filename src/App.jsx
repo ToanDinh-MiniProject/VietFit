@@ -25,7 +25,7 @@ import {
   Utensils, Trash2, Flame, Scale, 
   RotateCcw, Info, ChevronRight, ChevronLeft, Calendar,
   Home, User, Plus, Download, Settings,
-  Camera, Loader2, Sun, Moon, Coffee, X, Sparkles // <--- Đã thêm Sparkles
+  Camera, Loader2, Sun, Moon, Coffee, X, Sparkles, Weight
 } from 'lucide-react';
 
 // 2. CẤU HÌNH FIREBASE & API
@@ -40,7 +40,6 @@ const firebaseConfig = {
 };
 
 // API KEY GEMINI CỦA BẠN
-// Thay thế chuỗi cứng bằng biến môi trường
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // DANH SÁCH MODEL DỰ PHÒNG
@@ -60,13 +59,13 @@ const googleProvider = new GoogleAuthProvider();
 
 // 3. DỮ LIỆU MẪU
 const COMMON_FOODS = [
-  { name: 'Cơm trắng (1 bát)', calories: 130 },
-  { name: 'Phở bò', calories: 450 },
-  { name: 'Bánh mì thịt', calories: 400 },
-  { name: 'Trứng luộc', calories: 78 },
-  { name: 'Ức gà luộc (100g)', calories: 165 },
-  { name: 'Chuối (1 quả)', calories: 90 },
-  { name: 'Cà phê sữa đá', calories: 300 },
+  { name: 'Cơm trắng (1 bát)', weight: 150, calories: 130, carbs: 28, protein: 2.7, fat: 0.3, fiber: 0.4 },
+  { name: 'Phở bò', weight: 400, calories: 450, carbs: 70, protein: 25, fat: 12, fiber: 2 },
+  { name: 'Bánh mì thịt', weight: 200, calories: 400, carbs: 50, protein: 15, fat: 18, fiber: 3 },
+  { name: 'Trứng luộc', weight: 50, calories: 78, carbs: 0.6, protein: 6, fat: 5, fiber: 0 },
+  { name: 'Ức gà luộc', weight: 100, calories: 165, carbs: 0, protein: 31, fat: 3.6, fiber: 0 },
+  { name: 'Chuối (1 quả)', weight: 100, calories: 90, carbs: 23, protein: 1.1, fat: 0.3, fiber: 2.6 },
+  { name: 'Cà phê sữa đá', weight: 250, calories: 300, carbs: 40, protein: 5, fat: 10, fiber: 0 },
 ];
 
 const MEAL_TYPES = [
@@ -117,11 +116,14 @@ export default function App() {
   // Form State
   const [newMealName, setNewMealName] = useState('');
   const [newMealCalories, setNewMealCalories] = useState('');
+  const [newMealWeight, setNewMealWeight] = useState(''); // <--- State mới cho Khối lượng
+  const [newMealMacros, setNewMealMacros] = useState({ carbs: '', protein: '', fat: '', fiber: '' });
+
   const [selectedMealType, setSelectedMealType] = useState('breakfast');
   
   // Scan State
   const [isScanning, setIsScanning] = useState(false);
-  const [isTextSearching, setIsTextSearching] = useState(false); // <--- State mới cho Text Search
+  const [isTextSearching, setIsTextSearching] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -203,7 +205,7 @@ export default function App() {
     });
   };
 
-  // --- HÀM GỌI API HÌNH ẢNH (VISION) ---
+  // --- API VISION (ẢNH) - CẬP NHẬT TRẢ VỀ CẢ WEIGHT ---
   const callGeminiWithFallback = async (base64Data, modelIndex = 0) => {
     if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống AI đang bận.");
     const currentModel = GEMINI_MODELS[modelIndex];
@@ -217,7 +219,7 @@ export default function App() {
           body: JSON.stringify({
             contents: [{
               parts: [
-                { text: "Bạn là chuyên gia dinh dưỡng. Nhìn ảnh này. Trả về kết quả CHỈ LÀ MỘT JSON duy nhất: { \"name\": \"Tên món tiếng Việt ngắn gọn\", \"calories\": số_calo_nguyên_dương, \"description\": \"mô tả ngắn 1 câu\" }. Không thêm dấu ```json." },
+                { text: "Bạn là chuyên gia dinh dưỡng. Nhìn ảnh này. Trả về kết quả CHỈ LÀ MỘT JSON duy nhất: { \"name\": \"Tên món tiếng Việt ngắn gọn\", \"weight\": số_gam_ước_lượng, \"calories\": số_calo_nguyên, \"carbs\": số_gam_carb, \"protein\": số_gam_đạm, \"fat\": số_gam_béo, \"fiber\": số_gam_xơ }. Không thêm dấu ```json." },
                 { inline_data: { mime_type: "image/jpeg", data: base64Data } }
               ]
             }]
@@ -231,7 +233,7 @@ export default function App() {
     }
   };
 
-  // --- HÀM GỌI API BẰNG TEXT (MỚI) ---
+  // --- API TEXT - CẬP NHẬT TRẢ VỀ CẢ WEIGHT ---
   const callGeminiTextOnly = async (foodName, modelIndex = 0) => {
     if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống bận.");
     const currentModel = GEMINI_MODELS[modelIndex];
@@ -245,8 +247,8 @@ export default function App() {
           body: JSON.stringify({
             contents: [{
               parts: [{ 
-                text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng calo cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
-                Trả về JSON duy nhất: { "name": "Tên món chuẩn hóa", "calories": số_calo_nguyên, "description": "Mô tả ngắn gọn khẩu phần" }. 
+                text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng dinh dưỡng cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
+                Trả về JSON duy nhất: { "name": "Tên món chuẩn hóa", "weight": số_gam_ước_lượng_cho_1_phần, "calories": số_calo_nguyên, "carbs": số_gam_carb, "protein": số_gam_đạm, "fat": số_gam_béo, "fiber": số_gam_xơ, "description": "Mô tả ngắn gọn khẩu phần" }. 
                 Không giải thích thêm. Không dùng markdown block.` 
               }]
             }]
@@ -286,7 +288,14 @@ export default function App() {
             
             setScanResult({ ...resultData, image: preview });
             setNewMealName(resultData.name);
+            setNewMealWeight(resultData.weight || ''); // AI tự điền khối lượng
             setNewMealCalories(resultData.calories);
+            setNewMealMacros({
+                carbs: resultData.carbs || 0,
+                protein: resultData.protein || 0,
+                fat: resultData.fat || 0,
+                fiber: resultData.fiber || 0
+            });
         } else {
             throw new Error("AI không nhận diện được món ăn.");
         }
@@ -302,10 +311,12 @@ export default function App() {
   const cancelScan = () => {
     setScanResult(null);
     setNewMealName('');
+    setNewMealWeight('');
     setNewMealCalories('');
+    setNewMealMacros({ carbs: '', protein: '', fat: '', fiber: '' });
   };
 
-  // --- XỬ LÝ TEXT SEARCH (MỚI) ---
+  // --- XỬ LÝ TEXT SEARCH ---
   const handleTextAnalysis = async () => {
     if (!newMealName.trim()) return alert("Vui lòng nhập tên món ăn trước!");
     
@@ -322,7 +333,14 @@ export default function App() {
         if (jsonStart !== -1 && jsonEnd !== -1) {
            const result = JSON.parse(cleanText.substring(jsonStart, jsonEnd + 1));
            setNewMealName(result.name);
+           setNewMealWeight(result.weight || ''); // AI tự điền khối lượng
            setNewMealCalories(result.calories);
+           setNewMealMacros({
+               carbs: result.carbs || 0,
+               protein: result.protein || 0,
+               fat: result.fat || 0,
+               fiber: result.fiber || 0
+           });
         }
       }
     } catch (error) {
@@ -356,12 +374,22 @@ export default function App() {
     try {
       await addDoc(collection(db, "users", currentUser.uid, "meals"), {
         name: newMealName, 
-        calories: parseInt(newMealCalories), 
+        weight: parseInt(newMealWeight) || 0, // Lưu khối lượng
+        calories: parseInt(newMealCalories),
+        carbs: parseInt(newMealMacros.carbs) || 0,
+        protein: parseInt(newMealMacros.protein) || 0,
+        fat: parseInt(newMealMacros.fat) || 0,
+        fiber: parseInt(newMealMacros.fiber) || 0,
         type: selectedMealType, 
         date: currentDate, 
         createdAt: new Date().toISOString()
       });
-      setNewMealName(''); setNewMealCalories(''); setScanResult(null);
+      // Reset form
+      setNewMealName(''); 
+      setNewMealWeight('');
+      setNewMealCalories(''); 
+      setNewMealMacros({ carbs: '', protein: '', fat: '', fiber: '' });
+      setScanResult(null);
       setActiveTab('home');
     } catch (error) { alert("Lỗi lưu dữ liệu: " + error.message); }
   };
@@ -369,7 +397,16 @@ export default function App() {
   const addCommonFood = async (food) => {
     try {
       await addDoc(collection(db, "users", currentUser.uid, "meals"), {
-        name: food.name, calories: food.calories, type: selectedMealType, date: currentDate, createdAt: new Date().toISOString()
+        name: food.name, 
+        weight: food.weight || 0,
+        calories: food.calories, 
+        carbs: food.carbs || 0,
+        protein: food.protein || 0,
+        fat: food.fat || 0,
+        fiber: food.fiber || 0,
+        type: selectedMealType, 
+        date: currentDate, 
+        createdAt: new Date().toISOString()
       });
       setActiveTab('home');
     } catch (error) { alert("Lỗi lưu dữ liệu."); }
@@ -445,11 +482,24 @@ export default function App() {
               ) : (
                 <div className="space-y-2">
                   {typeMeals.map((meal) => (
-                    <div key={meal.id} className="flex justify-between p-4 bg-white rounded-xl shadow-sm border border-gray-50 hover:shadow-md transition-shadow">
-                      <div className="font-medium text-gray-800">{meal.name}</div>
-                      <div className="flex items-center gap-3 text-xs text-gray-500 font-medium">
-                        <span className="bg-gray-100 px-2 py-1 rounded-md">{meal.calories} kcal</span>
-                        <button onClick={() => removeMeal(meal.id)} className="p-1 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors"><Trash2 size={16} /></button>
+                    <div key={meal.id} className="flex flex-col p-4 bg-white rounded-xl shadow-sm border border-gray-50 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="font-medium text-gray-800 text-lg">
+                            {meal.name}
+                            {/* Hiển thị Khối lượng ngay cạnh tên */}
+                            {meal.weight > 0 && <span className="ml-2 text-xs text-gray-400 font-normal">({meal.weight}g)</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-emerald-600">{meal.calories} kcal</span>
+                            <button onClick={() => removeMeal(meal.id)} className="p-1 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3 text-xs text-gray-500 font-medium">
+                          <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">C: {meal.carbs || 0}g</span>
+                          <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded">P: {meal.protein || 0}g</span>
+                          <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded">F: {meal.fat || 0}g</span>
+                          {(meal.fiber > 0) && <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">X: {meal.fiber}g</span>}
                       </div>
                     </div>
                   ))}
@@ -520,7 +570,10 @@ export default function App() {
                 <div className="flex-1">
                     <div className="text-xs text-emerald-600 font-bold uppercase mb-0.5">AI Phát hiện</div>
                     <div className="font-bold text-gray-800 line-clamp-1">{scanResult.name}</div>
-                    <div className="text-xs text-gray-500">~{scanResult.calories} kcal</div>
+                    <div className="flex gap-2 items-center">
+                        <span className="text-xs font-bold text-gray-600 bg-gray-200 px-1 rounded">{scanResult.weight ? `${scanResult.weight}g` : '???g'}</span>
+                        <span className="text-xs text-gray-500">~{scanResult.calories} kcal</span>
+                    </div>
                 </div>
                 <button onClick={cancelScan} className="absolute top-2 right-2 text-gray-400 hover:text-red-500"><X size={16}/></button>
             </div>
@@ -551,21 +604,59 @@ export default function App() {
                   )}
                 </button>
               </div>
-              <div className="text-[10px] text-gray-400 mt-1 ml-1 flex items-center gap-1">
-                <Sparkles size={10} /> Nhập tên & bấm nút sao để AI điền Calo
+          </div>
+
+          {/* Grid nhập Macro */}
+          <div className="grid grid-cols-4 gap-2">
+              {[
+                { key: 'carbs', label: 'Carb', color: 'text-blue-600', bg: 'bg-blue-50' },
+                { key: 'protein', label: 'Đạm', color: 'text-red-600', bg: 'bg-red-50' },
+                { key: 'fat', label: 'Béo', color: 'text-yellow-600', bg: 'bg-yellow-50' },
+                { key: 'fiber', label: 'Xơ', color: 'text-green-600', bg: 'bg-green-50' }
+              ].map((item) => (
+                <div key={item.key}>
+                   <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 text-center">{item.label} (g)</label>
+                   <input 
+                      type="number" 
+                      value={newMealMacros[item.key]} 
+                      onChange={(e) => setNewMealMacros({...newMealMacros, [item.key]: e.target.value})}
+                      placeholder="0"
+                      className={`w-full p-2 text-center font-bold rounded-lg outline-none border border-transparent focus:border-gray-300 transition-all ${item.color} ${item.bg}`}
+                   />
+                </div>
+              ))}
+          </div>
+          
+          {/* CỘT KHỐI LƯỢNG VÀ CALO ĐẶT CẠNH NHAU */}
+          <div className="grid grid-cols-2 gap-4">
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 text-center">Khối lượng (g)</label>
+                  <div className="relative">
+                      <input 
+                        type="number" 
+                        value={newMealWeight} 
+                        onChange={(e) => setNewMealWeight(e.target.value)} 
+                        placeholder="0" 
+                        className={`w-full p-4 text-center text-xl font-extrabold bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all text-gray-700 outline-none ${isTextSearching ? 'animate-pulse' : ''}`} 
+                      />
+                      <div className="absolute top-1/2 -translate-y-1/2 right-3 text-gray-300 pointer-events-none"><Scale size={16}/></div>
+                  </div>
+              </div>
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 text-center">Calo (kcal)</label>
+                  <div className="relative">
+                      <input 
+                        type="number" 
+                        value={newMealCalories} 
+                        onChange={(e) => setNewMealCalories(e.target.value)} 
+                        placeholder="0" 
+                        className={`w-full p-4 text-center text-xl font-extrabold bg-emerald-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all text-emerald-600 outline-none ${isTextSearching ? 'animate-pulse' : ''}`} 
+                       />
+                       <div className="absolute top-1/2 -translate-y-1/2 right-3 text-emerald-300 pointer-events-none"><Flame size={16}/></div>
+                  </div>
               </div>
           </div>
 
-          <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Calo (kcal)</label>
-              <input 
-                type="number" 
-                value={newMealCalories} 
-                onChange={(e) => setNewMealCalories(e.target.value)} 
-                placeholder="0" 
-                className={`w-full p-4 bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all font-medium text-gray-800 outline-none ${isTextSearching ? 'animate-pulse bg-emerald-50' : ''}`} 
-               />
-          </div>
           <button type="submit" className={`w-full text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform ${scanResult ? 'bg-emerald-600 shadow-emerald-200' : 'bg-gray-800 shadow-gray-300'}`}>
             {scanResult ? '✅ Lưu kết quả AI' : 'Lưu Món Ăn'}
           </button>
@@ -579,7 +670,10 @@ export default function App() {
             {COMMON_FOODS.map((f, i) => (
                 <button key={i} onClick={()=>addCommonFood(f)} className="bg-white p-3 rounded-xl border border-gray-100 text-left hover:border-emerald-500 hover:bg-emerald-50 transition-all group shadow-sm">
                     <div className="font-medium text-gray-800 group-hover:text-emerald-700">{f.name}</div>
-                    <div className="text-xs text-gray-400 mt-1">{f.calories} kcal</div>
+                    <div className="flex gap-2 text-xs mt-1">
+                        <span className="text-emerald-600 font-bold">{f.calories} kcal</span>
+                        <span className="text-gray-400">| {f.weight}g</span>
+                    </div>
                 </button>
             ))}
          </div>
