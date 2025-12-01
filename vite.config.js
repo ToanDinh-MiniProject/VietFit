@@ -14,16 +14,16 @@ export default defineConfig({
         description: 'Ứng dụng hỗ trợ giảm cân cho người Việt',
         theme_color: '#059669', // Màu xanh Emerald chủ đạo của app
         background_color: '#ffffff',
-        display: 'standalone', // Quan trọng: Dòng này làm mất thanh địa chỉ web
+        display: 'standalone', // Quan trọng: làm mất thanh địa chỉ web
         orientation: 'portrait', // Khóa màn hình dọc
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'logo_app.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'logo_app.png',
             sizes: '512x512',
             type: 'image/png'
           }
