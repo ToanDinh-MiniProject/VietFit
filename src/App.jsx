@@ -21,11 +21,21 @@ import {
   setDoc
 } from "firebase/firestore";
 
+// --- IMPORT THƯ VIỆN BIỂU ĐỒ (MỚI) ---
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell 
+} from 'recharts';
+
 import { 
   Utensils, Trash2, Flame, Scale, 
   RotateCcw, Info, ChevronRight, ChevronLeft, Calendar,
   Home, User, Plus, Download, Settings,
-  Camera, Loader2, Sun, Moon, Coffee, X, Sparkles, Weight
+  Camera, Loader2, Sun, Moon, Coffee, X, Sparkles, Weight, BarChart2
 } from 'lucide-react';
 
 // 2. CẤU HÌNH FIREBASE & API
@@ -116,7 +126,7 @@ export default function App() {
   // Form State
   const [newMealName, setNewMealName] = useState('');
   const [newMealCalories, setNewMealCalories] = useState('');
-  const [newMealWeight, setNewMealWeight] = useState(''); // <--- State mới cho Khối lượng
+  const [newMealWeight, setNewMealWeight] = useState('');  
   const [newMealMacros, setNewMealMacros] = useState({ carbs: '', protein: '', fat: '', fiber: '' });
 
   const [selectedMealType, setSelectedMealType] = useState('breakfast');
@@ -205,7 +215,7 @@ export default function App() {
     });
   };
 
-  // --- API VISION (ẢNH) - CẬP NHẬT TRẢ VỀ CẢ WEIGHT ---
+  // --- API VISION (ẢNH) ---
   const callGeminiWithFallback = async (base64Data, modelIndex = 0) => {
     if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống AI đang bận.");
     const currentModel = GEMINI_MODELS[modelIndex];
@@ -233,7 +243,7 @@ export default function App() {
     }
   };
 
-  // --- API TEXT - CẬP NHẬT TRẢ VỀ CẢ WEIGHT ---
+  // --- API TEXT ---
   const callGeminiTextOnly = async (foodName, modelIndex = 0) => {
     if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống bận.");
     const currentModel = GEMINI_MODELS[modelIndex];
@@ -440,9 +450,33 @@ export default function App() {
   const remainingCalories = targetCalories - totalCaloriesConsumed;
   const progressPercentage = Math.min((totalCaloriesConsumed / targetCalories) * 100, 100);
 
+  // --- LOGIC XỬ LÝ DỮ LIỆU BIỂU ĐỒ (7 NGÀY) ---
+  const getLast7DaysData = () => {
+    const data = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateKey = d.toISOString().slice(0, 10);
+      const displayDay = `${d.getDate()}/${d.getMonth() + 1}`; // VD: 28/1
+      
+      // Lọc món ăn trong ngày đó
+      const mealsInDay = meals.filter(m => m.date === dateKey);
+      const totalCal = mealsInDay.reduce((acc, m) => acc + m.calories, 0);
+      
+      data.push({
+        day: displayDay,
+        cal: totalCal
+      });
+    }
+    return data;
+  };
+  
+  const chartData = getLast7DaysData();
+
   // --- UI RENDER: TAB HOME ---
   const renderHomeTab = () => (
     <div className="space-y-6 animate-fade-in pb-24">
+      {/* Date Navigator */}
       <div className="flex items-center justify-between bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={20} className="text-gray-500"/></button>
         <div className="flex items-center gap-2 font-bold text-gray-700">
@@ -451,6 +485,7 @@ export default function App() {
         <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-500"/></button>
       </div>
 
+      {/* Main Stats Card */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
         <div className="relative z-10 text-center">
@@ -467,6 +502,35 @@ export default function App() {
         </div>
       </div>
 
+      {/* --- BIỂU ĐỒ 7 NGÀY (MỚI THÊM) --- */}
+      <div className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
+         <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 flex items-center gap-2">
+            <BarChart2 size={16} className="text-emerald-600"/> Thống kê 7 ngày
+         </h3>
+         <div className="h-48 w-full text-xs">
+            <ResponsiveContainer width="100%" height="100%">
+               <BarChart data={chartData}>
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill:'#9CA3AF'}} />
+                  <Tooltip 
+                     cursor={{fill: '#ECFDF5'}} 
+                     contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
+                  />
+                  <Bar dataKey="cal" radius={[4, 4, 0, 0]}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.cal > targetCalories ? '#EF4444' : '#10B981'} />
+                    ))}
+                  </Bar>
+               </BarChart>
+            </ResponsiveContainer>
+         </div>
+         <div className="flex justify-center gap-4 mt-2 text-[10px] font-medium text-gray-400">
+             <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Đạt mục tiêu</div>
+             <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Vượt quá</div>
+         </div>
+      </div>
+      {/* ------------------------------- */}
+
+      {/* Meal Lists */}
       <div>
         {MEAL_TYPES.map((type) => {
           const typeMeals = mealsByDate.filter(m => m.type === type.id);
