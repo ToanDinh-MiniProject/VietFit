@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import HealthPage from './Health'; 
+import InfoPage from './Info';
+import { BookOpen } from 'lucide-react';
 // 1. IMPORT CÁC THƯ VIỆN
 import { initializeApp } from "firebase/app";
 import { 
@@ -130,13 +133,13 @@ export default function App() {
   const [newMealMacros, setNewMealMacros] = useState({ carbs: '', protein: '', fat: '', fiber: '' });
 
   const [selectedMealType, setSelectedMealType] = useState('breakfast');
-  
+  const [showInfoModal, setShowInfoModal] = useState(false);
   // Scan State
   const [isScanning, setIsScanning] = useState(false);
   const [isTextSearching, setIsTextSearching] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const fileInputRef = useRef(null);
-
+  const [originalNutrients, setOriginalNutrients] = useState(null);
   // --- AUTH & LOAD DATA ---
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 8000);
@@ -296,9 +299,10 @@ export default function App() {
             const finalJson = cleanText.substring(firstBrace, lastBrace + 1);
             const resultData = JSON.parse(finalJson);
             
+            setOriginalNutrients({...resultData}); // Lưu mốc gốc
             setScanResult({ ...resultData, image: preview });
             setNewMealName(resultData.name);
-            setNewMealWeight(resultData.weight || ''); // AI tự điền khối lượng
+            setNewMealWeight(resultData.weight || 100);
             setNewMealCalories(resultData.calories);
             setNewMealMacros({
                 carbs: resultData.carbs || 0,
@@ -342,15 +346,16 @@ export default function App() {
         
         if (jsonStart !== -1 && jsonEnd !== -1) {
            const result = JSON.parse(cleanText.substring(jsonStart, jsonEnd + 1));
-           setNewMealName(result.name);
-           setNewMealWeight(result.weight || ''); // AI tự điền khối lượng
-           setNewMealCalories(result.calories);
-           setNewMealMacros({
-               carbs: result.carbs || 0,
-               protein: result.protein || 0,
-               fat: result.fat || 0,
-               fiber: result.fiber || 0
-           });
+           setOriginalNutrients({...result}); // Lưu mốc gốc
+          setNewMealName(result.name);
+          setNewMealWeight(result.weight || 100);
+          setNewMealCalories(result.calories);
+          setNewMealMacros({
+              carbs: result.carbs || 0,
+              protein: result.protein || 0,
+              fat: result.fat || 0,
+              fiber: result.fiber || 0
+          });
         }
       }
     } catch (error) {
@@ -475,6 +480,7 @@ export default function App() {
 
   // --- UI RENDER: TAB HOME ---
   const renderHomeTab = () => (
+    
     <div className="space-y-6 animate-fade-in pb-24">
       {/* Date Navigator */}
       <div className="flex items-center justify-between bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
@@ -484,7 +490,7 @@ export default function App() {
         </div>
         <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-500"/></button>
       </div>
-
+      
       {/* Main Stats Card */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
@@ -575,7 +581,23 @@ export default function App() {
       </div>
     </div>
   );
+  const handleWeightChange = (value) => {
+    const weight = parseFloat(value);
+    setNewMealWeight(value);
 
+    // Nếu đã có dữ liệu gốc và cân nặng hợp lệ
+    if (originalNutrients && weight > 0) {
+        const ratio = weight / (originalNutrients.weight || 100);
+        
+        setNewMealCalories(Math.round(originalNutrients.calories * ratio));
+        setNewMealMacros({
+            carbs: Math.round(originalNutrients.carbs * ratio * 10) / 10,
+            protein: Math.round(originalNutrients.protein * ratio * 10) / 10,
+            fat: Math.round(originalNutrients.fat * ratio * 10) / 10,
+            fiber: Math.round(originalNutrients.fiber * ratio * 10) / 10,
+        });
+    }
+};
   // --- UI RENDER: TAB ADD ---
   const renderAddTab = () => (
     <div className="space-y-6 animate-fade-in pb-24 h-full flex flex-col">
@@ -696,13 +718,14 @@ export default function App() {
               <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 text-center">Khối lượng (g)</label>
                   <div className="relative">
-                      <input 
-                        type="number" 
-                        value={newMealWeight} 
-                        onChange={(e) => setNewMealWeight(e.target.value)} 
-                        placeholder="0" 
-                        className={`w-full p-4 text-center text-xl font-extrabold bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all text-gray-700 outline-none ${isTextSearching ? 'animate-pulse' : ''}`} 
-                      />
+                      {/* Tìm đoạn này trong code của bạn */}
+                  <input 
+                      type="number" 
+                      value={newMealWeight} 
+                      onChange={(e) => handleWeightChange(e.target.value)} // Thay đổi ở đây
+                      placeholder="0" 
+                      className={`w-full p-4 text-center text-xl font-extrabold bg-gray-50 rounded-xl border border-transparent focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all text-gray-700 outline-none ${isTextSearching ? 'animate-pulse' : ''}`} 
+                  />
                       <div className="absolute top-1/2 -translate-y-1/2 right-3 text-gray-300 pointer-events-none"><Scale size={16}/></div>
                   </div>
               </div>
@@ -851,6 +874,8 @@ export default function App() {
           {activeTab === 'home' && renderHomeTab()}
           {activeTab === 'add' && renderAddTab()}
           {activeTab === 'profile' && renderProfileTab()}
+          {activeTab === 'health' && <HealthPage />}
+          {activeTab === 'info' && <InfoPage />}
         </div>
         
         {/* Bottom Nav */}
@@ -859,17 +884,25 @@ export default function App() {
               <Home size={24} strokeWidth={activeTab==='home'?2.5:2} />
               <span className="text-[10px] font-bold">Trang chủ</span>
           </button>
-          
+          <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'info' ? 'text-emerald-600' : 'text-gray-300'}`}>
+          <BookOpen size={24} strokeWidth={activeTab === 'info' ? 2.5 : 2} />
+          <span className="text-[10px] font-bold">Kiến thức</span>
+          </button>
           <div className="-mt-10">
               <button onClick={() => setActiveTab('add')} className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-200 transition-transform active:scale-95 border-4 border-gray-50 ${activeTab==='add'?'bg-emerald-600':'bg-emerald-500 hover:bg-emerald-600'}`}>
                   <Plus size={32} />
               </button>
           </div>
-          
+          <button onClick={() => setActiveTab('health')} className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab==='health'?'text-emerald-600':'text-gray-300 hover:text-gray-400'}`}>
+              <User size={24} strokeWidth={activeTab==='health'?2.5:2} />
+              <span className="text-[10px] font-bold">Sức khỏe</span>
+          </button>
           <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab==='profile'?'text-emerald-600':'text-gray-300 hover:text-gray-400'}`}>
               <User size={24} strokeWidth={activeTab==='profile'?2.5:2} />
               <span className="text-[10px] font-bold">Hồ sơ</span>
           </button>
+          
+          
         </div>
         
       </div>
