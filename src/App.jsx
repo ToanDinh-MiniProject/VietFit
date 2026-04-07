@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import HealthPage from './Health'; 
 import InfoPage from './Info';
 import { BookOpen } from 'lucide-react';
+import Login from './Login';
 // 1. IMPORT CÁC THƯ VIỆN
 import { initializeApp } from "firebase/app";
 import { 
@@ -57,6 +58,7 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // DANH SÁCH MODEL DỰ PHÒNG
 const GEMINI_MODELS = [
+  'gemini-1.5-flash-8b',
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
   "gemini-1.5-pro",
@@ -87,6 +89,13 @@ const MEAL_TYPES = [
   { id: 'dinner', label: 'Bữa Chiều/Tối', icon: <Moon size={18} className="text-indigo-500"/> },
 ];
 
+const ACTIVITY_LEVELS = [
+  { val: '1.2', label: 'Vô cùng không hoạt động', desc: 'Bệnh nhân/Người nằm tại chỗ' },
+  { val: '1.5', label: 'Ít vận động', desc: 'Nhân viên văn phòng, ít tập thể dục' },
+  { val: '1.75', label: 'Hoạt động vừa phải', desc: 'Công nhân xây dựng, chạy 1h/ngày' },
+  { val: '2.2', label: 'Hoạt động mạnh mẽ', desc: 'Nông nghiệp, bơi 2h/ngày' },
+  { val: '2.4', label: 'Cực kỳ năng động', desc: 'Vận động viên chuyên nghiệp' },
+];
 // 4. MÀN HÌNH ĐĂNG NHẬP
 const LoginScreen = ({ onLogin }) => (
   <div className="min-h-screen bg-emerald-600 flex items-center justify-center p-4 font-sans">
@@ -142,7 +151,7 @@ export default function App() {
   const [originalNutrients, setOriginalNutrients] = useState(null);
   // --- AUTH & LOAD DATA ---
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 8000);
+    const timer = setTimeout(() => setLoading(false), 1000);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       clearTimeout(timer);
@@ -248,34 +257,60 @@ export default function App() {
 
   // --- API TEXT ---
   const callGeminiTextOnly = async (foodName, modelIndex = 0) => {
-    if (modelIndex >= GEMINI_MODELS.length) throw new Error("Hệ thống bận.");
-    const currentModel = GEMINI_MODELS[modelIndex];
+  // 1. Kiểm tra giới hạn danh sách Model
+  if (modelIndex >= GEMINI_MODELS.length) {
+    console.error("Tất cả các Model Gemini đều không phản hồi.");
+    throw new Error("Hệ thống AI đang bận, vui lòng thử lại sau.");
+  }
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ 
-                text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng dinh dưỡng cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
-                Trả về JSON duy nhất: { "name": "Tên món chuẩn hóa", "weight": số_gam_ước_lượng_cho_1_phần, "calories": số_calo_nguyên, "carbs": số_gam_carb, "protein": số_gam_đạm, "fat": số_gam_béo, "fiber": số_gam_xơ, "description": "Mô tả ngắn gọn khẩu phần" }. 
-                Không giải thích thêm. Không dùng markdown block.` 
-              }]
-            }]
-          })
-        }
-      );
+  const currentModel = GEMINI_MODELS[modelIndex];
+  
+  // 2. Cấu hình URL chính xác (Quan trọng: :generateContent)
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${GEMINI_API_KEY}`;
 
-      if (!response.ok) return await callGeminiTextOnly(foodName, modelIndex + 1);
-      const data = await response.json();
-      return data;
-    } catch (error) {
+  try {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ 
+            text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng dinh dưỡng cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
+            Trả về JSON duy nhất: { "name": "Tên món", "weight": 100, "calories": 100, "carbs": 10, "protein": 5, "fat": 2, "fiber": 1, "description": "mô tả" }. 
+            Không dùng markdown, không giải thích.` 
+          }]
+        }]
+      })
+    });
+
+    // 3. Nếu lỗi 404 hoặc 500, thử model tiếp theo sau một khoảng chờ ngắn
+    if (!response.ok) {
+      console.warn(`Model ${currentModel} lỗi (${response.status}). Đang thử model tiếp theo...`);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Chờ 1s để tránh spam request
       return await callGeminiTextOnly(foodName, modelIndex + 1);
     }
-  };
+
+    const data = await response.json();
+    
+    // Kiểm tra cấu trúc dữ liệu nhận được từ Google API
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      return data;
+    } else {
+      throw new Error("Dữ liệu AI trả về không đúng cấu trúc.");
+    }
+
+  } catch (error) {
+    console.error(`Lỗi tại model ${currentModel}:`, error.message);
+    
+    // Nếu chưa hết danh sách model, tiếp tục thử
+    if (modelIndex < GEMINI_MODELS.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return await callGeminiTextOnly(foodName, modelIndex + 1);
+    }
+    
+    throw error;
+  }
+};
 
   // --- XỬ LÝ ẢNH ---
   const handleImageUpload = async (e) => {
@@ -365,23 +400,36 @@ export default function App() {
     }
   };
 
-  // --- CÁC HÀM FIREBASE DATA ---
+  // --- CÁC HÀM FIREBASE lưu dữ liệu ---
   const saveUserProfile = async () => {
-    let bmr = userInfo.gender === 'male' 
-      ? (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) + 5
-      : (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) - 161;
-    const tdeeVal = Math.round(bmr * parseFloat(userInfo.activityLevel));
-    const targetVal = tdeeVal - 500; 
-    
-    setTdee(tdeeVal); setTargetCalories(targetVal);
-    
-    try {
-      await setDoc(doc(db, "users", currentUser.uid), {
-        userInfo: userInfo, tdee: tdeeVal, targetCalories: targetVal, updatedAt: new Date().toISOString()
-      }, { merge: true });
-      setStep(2); setActiveTab('home');
-    } catch (error) { alert("Lỗi lưu hồ sơ: " + error.message); }
-  };
+  // 1. Tính BMR (Cơ sở năng lượng)
+  let bmr = userInfo.gender === 'male' 
+    ? (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) + 5
+    : (10 * userInfo.weight) + (6.25 * userInfo.height) - (5 * userInfo.age) - 161;
+
+  // 2. Tính TDEE sử dụng hệ số PAL từ bảng mức độ vận động
+  const pal = parseFloat(userInfo.activityLevel || 1.5); // Mặc định 1.5 nếu chưa chọn
+  const tdeeVal = Math.round(bmr * pal);
+
+  // 3. Tính mục tiêu calo (Ví dụ: giảm 500 calo để giảm cân an toàn)
+  const targetVal = tdeeVal - 500; 
+  
+  setTdee(tdeeVal); 
+  setTargetCalories(targetVal);
+  
+  try {
+    await setDoc(doc(db, "users", currentUser.uid), {
+      userInfo: userInfo, // userInfo lúc này đã bao gồm activityLevel mới
+      tdee: tdeeVal, 
+      targetCalories: targetVal, 
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    setStep(2); 
+    setActiveTab('home');
+  } catch (error) { 
+    alert("Lỗi lưu hồ sơ: " + error.message); 
+  }
+};
 
   const addMeal = async (e) => {
     e.preventDefault();
@@ -815,7 +863,7 @@ export default function App() {
     );
   }
 
-  if (!currentUser) return <LoginScreen onLogin={handleGoogleLogin} />;
+  if (!currentUser) return <Login />;
   
   if (step === 1) return (
      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
@@ -856,6 +904,32 @@ export default function App() {
                   <input type="number" name="weight" value={userInfo.weight} onChange={handleInputChange} className="w-full bg-transparent font-extrabold text-3xl text-emerald-600 outline-none" />
               </div>
               
+              <div className="mt-4">
+  <label className="text-xs font-bold text-gray-400 uppercase block mb-2 tracking-wider">Mức độ vận động</label>
+  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+    {ACTIVITY_LEVELS.map((level) => (
+      <button
+        key={level.val}
+        type="button"
+        onClick={() => setUserInfo({ ...userInfo, activityLevel: level.val })}
+        className={`w-full p-3 rounded-xl text-left border-2 transition-all ${
+          userInfo.activityLevel === level.val 
+          ? 'border-emerald-500 bg-emerald-50' 
+          : 'border-gray-100 bg-white hover:border-emerald-100'
+        }`}
+      >
+        <div className="flex justify-between items-center">
+          <span className={`text-sm font-bold ${userInfo.activityLevel === level.val ? 'text-emerald-700' : 'text-gray-700'}`}>
+            {level.label}
+          </span>
+          <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full text-gray-400">PAL: {level.val}</span>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-0.5">{level.desc}</p>
+      </button>
+    ))}
+  </div>
+</div>
+{/* ---------------------- */}
               <button onClick={saveUserProfile} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-xl shadow-gray-200 mt-4 active:scale-95 transition-transform flex items-center justify-center gap-2">
                   Lưu & Bắt đầu ngay <ChevronRight size={18}/>
               </button>
