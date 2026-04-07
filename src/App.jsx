@@ -505,6 +505,16 @@ export default function App() {
                 <span>0</span>
                 <span>Mục tiêu: {targetCalories}</span>
             </div>
+
+            {remainingCalories < 0 && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl animate-bounce">
+          <p className="text-red-600 text-sm font-bold flex items-center justify-center gap-2">
+            <Sparkles size={16} />
+            Bạn đã vượt mục tiêu hôm nay, thử vận động nhẹ nhé!
+          </p>
+        </div>
+      )}
+      {/* --------------------------------------- */}
         </div>
       </div>
 
