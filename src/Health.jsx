@@ -21,11 +21,10 @@ export default function HealthPage() {
   const auth = getAuth();
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
   const GEMINI_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro",
-    "gemini-pro-vision",
-    "gemini-flash-latest" 
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash-lite"
   ];
 
   const callGeminiHealth = async (prompt, modelIndex = 0) => {

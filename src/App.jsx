@@ -55,15 +55,13 @@ const firebaseConfig = {
 
 // API KEY GEMINI CỦA BẠN
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
+console.log("Kiểm tra Key:", GEMINI_API_KEY);
 // DANH SÁCH MODEL DỰ PHÒNG
 const GEMINI_MODELS = [
-  'gemini-1.5-flash-8b',
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-latest",
-  "gemini-1.5-pro",
-  "gemini-pro-vision",
-  "gemini-flash-latest" 
+  "gemini-2.5-flash", // Ưu tiên số 1: Nhanh, ổn định, cập nhật mới nhất
+  "gemini-2.0-flash",        // Dự phòng 1
+  "gemini-2.5-pro",   // Dự phòng 2: Thông minh hơn nhưng chậm hơn
+  "gemini-2.0-flash-lite" 
 ];
 
 // Khởi tạo Firebase
@@ -256,17 +254,12 @@ export default function App() {
   };
 
   // --- API TEXT ---
-  const callGeminiTextOnly = async (foodName, modelIndex = 0) => {
-  // 1. Kiểm tra giới hạn danh sách Model
-  if (modelIndex >= GEMINI_MODELS.length) {
-    console.error("Tất cả các Model Gemini đều không phản hồi.");
-    throw new Error("Hệ thống AI đang bận, vui lòng thử lại sau.");
-  }
+  const callGeminiTextOnly = async (foodName) => {
+  if (!foodName.trim()) return null;
 
-  const currentModel = GEMINI_MODELS[modelIndex];
-  
-  // 2. Cấu hình URL chính xác (Quan trọng: :generateContent)
-  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${GEMINI_API_KEY}`;
+  const model = "gemini-2.5-flash";
+  // Sử dụng v1beta vì nó hỗ trợ tốt nhất cho response_mime_type
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
   try {
     const response = await fetch(API_URL, {
@@ -275,43 +268,51 @@ export default function App() {
       body: JSON.stringify({
         contents: [{
           parts: [{ 
-            text: `Bạn là chuyên gia dinh dưỡng Việt Nam. Hãy ước lượng dinh dưỡng cho 1 khẩu phần ăn phổ biến của món: "${foodName}". 
-            Trả về JSON duy nhất: { "name": "Tên món", "weight": 100, "calories": 100, "carbs": 10, "protein": 5, "fat": 2, "fiber": 1, "description": "mô tả" }. 
-            Không dùng markdown, không giải thích.` 
+            text: `Ước lượng dinh dưỡng món: "${foodName}". Trả về JSON: {"name": "Tên", "weight": 100, "calories": 100, "carbs": 10, "protein": 5, "fat": 2, "fiber": 1}. Không giải thích.` 
           }]
-        }]
+        }],
+        // SỬA TẠI ĐÂY: Đảm bảo đúng tên trường mà API v1beta chấp nhận
+        generationConfig: {
+          responseMimeType: "application/json", // Chuyển thành camelCase cho khớp với JS object gửi đi
+          temperature: 0.1
+        }
       })
     });
 
-    // 3. Nếu lỗi 404 hoặc 500, thử model tiếp theo sau một khoảng chờ ngắn
     if (!response.ok) {
-      console.warn(`Model ${currentModel} lỗi (${response.status}). Đang thử model tiếp theo...`);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Chờ 1s để tránh spam request
-      return await callGeminiTextOnly(foodName, modelIndex + 1);
+      const errorData = await response.json();
+      console.error("Chi tiết lỗi:", errorData);
+      
+      // Nếu vẫn lỗi về responseMimeType, ta sẽ thử cách thô sơ nhất (xóa nó đi)
+      if (errorData.error?.message?.includes("mime_type")) {
+         return await callGeminiBackup(foodName);
+      }
+      return null;
     }
 
-    const data = await response.json();
-    
-    // Kiểm tra cấu trúc dữ liệu nhận được từ Google API
-    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
-      return data;
-    } else {
-      throw new Error("Dữ liệu AI trả về không đúng cấu trúc.");
-    }
-
+    return await response.json();
   } catch (error) {
-    console.error(`Lỗi tại model ${currentModel}:`, error.message);
-    
-    // Nếu chưa hết danh sách model, tiếp tục thử
-    if (modelIndex < GEMINI_MODELS.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return await callGeminiTextOnly(foodName, modelIndex + 1);
-    }
-    
-    throw error;
+    console.error("Lỗi kết nối:", error);
+    return null;
   }
 };
 
+// Hàm dự phòng trường hợp API kén chọn cấu trúc JSON
+const callGeminiBackup = async (foodName) => {
+  const model = "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: `Ước lượng dinh dưỡng món "${foodName}" trả về duy nhất 1 dòng JSON {name, calories, protein, fat, carbs, weight, fiber}` }]
+      }]
+    })
+  });
+  return await response.json();
+};
   // --- XỬ LÝ ẢNH ---
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -366,40 +367,35 @@ export default function App() {
   };
 
   // --- XỬ LÝ TEXT SEARCH ---
-  const handleTextAnalysis = async () => {
-    if (!newMealName.trim()) return alert("Vui lòng nhập tên món ăn trước!");
+ const handleTextAnalysis = async () => {
+  if (!newMealName.trim() || isTextSearching) return;
+  
+  setIsTextSearching(true);
+  try {
+    const data = await callGeminiTextOnly(newMealName);
     
-    setIsTextSearching(true);
-    try {
-      const data = await callGeminiTextOnly(newMealName);
+    if (data && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const result = JSON.parse(data.candidates[0].content.parts[0].text);
       
-      if (data && data.candidates && data.candidates[0].content) {
-        const text = data.candidates[0].content.parts[0].text;
-        const cleanText = text.replace(/```json|```/g, '').trim();
-        const jsonStart = cleanText.indexOf('{');
-        const jsonEnd = cleanText.lastIndexOf('}');
-        
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-           const result = JSON.parse(cleanText.substring(jsonStart, jsonEnd + 1));
-           setOriginalNutrients({...result}); // Lưu mốc gốc
-          setNewMealName(result.name);
-          setNewMealWeight(result.weight || 100);
-          setNewMealCalories(result.calories);
-          setNewMealMacros({
-              carbs: result.carbs || 0,
-              protein: result.protein || 0,
-              fat: result.fat || 0,
-              fiber: result.fiber || 0
-          });
-        }
-      }
-    } catch (error) {
-      alert("Không tìm thấy thông tin món này. Bạn hãy tự nhập nhé!");
-    } finally {
-      setIsTextSearching(false);
+      setOriginalNutrients({...result});
+      setNewMealName(result.name);
+      setNewMealWeight(result.weight || 100);
+      setNewMealCalories(result.calories);
+      setNewMealMacros({
+        carbs: result.carbs || 0,
+        protein: result.protein || 0,
+        fat: result.fat || 0,
+        fiber: result.fiber || 0
+      });
+    } else {
+      alert("AI đang bận hoặc không nhận diện được món này. Bạn hãy tự nhập nhé!");
     }
-  };
-
+  } catch (error) {
+    console.error("Lỗi phân tích JSON:", error);
+  } finally {
+    setIsTextSearching(false);
+  }
+};
   // --- CÁC HÀM FIREBASE lưu dữ liệu ---
   const saveUserProfile = async () => {
   // 1. Tính BMR (Cơ sở năng lượng)
@@ -571,22 +567,23 @@ export default function App() {
          <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 flex items-center gap-2">
             <BarChart2 size={16} className="text-emerald-600"/> Thống kê 7 ngày
          </h3>
-         <div className="h-48 w-full text-xs">
-            <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={chartData}>
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill:'#9CA3AF'}} />
-                  <Tooltip 
-                     cursor={{fill: '#ECFDF5'}} 
-                     contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                  />
-                  <Bar dataKey="cal" radius={[4, 4, 0, 0]}>
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.cal > targetCalories ? '#EF4444' : '#10B981'} />
-                    ))}
-                  </Bar>
-               </BarChart>
-            </ResponsiveContainer>
-         </div>
+         {/* Thay h-48 bằng style={{ height: '200px' }} để đảm bảo Recharts luôn thấy được chiều cao */}
+<div className="w-full text-xs" style={{ height: '200px', minHeight: '200px' }}>
+  <ResponsiveContainer width="100%" height="100%">
+    <BarChart data={chartData}>
+      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill:'#9CA3AF'}} />
+      <Tooltip 
+        cursor={{fill: '#ECFDF5'}} 
+        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
+      />
+      <Bar dataKey="cal" radius={[4, 4, 0, 0]}>
+        {chartData.map((entry, index) => (
+          <Cell key={`cell-${index}`} fill={entry.cal > targetCalories ? '#EF4444' : '#10B981'} />
+        ))}
+      </Bar>
+    </BarChart>
+  </ResponsiveContainer>
+</div>
          <div className="flex justify-center gap-4 mt-2 text-[10px] font-medium text-gray-400">
              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Đạt mục tiêu</div>
              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Vượt quá</div>
